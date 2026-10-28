@@ -18,7 +18,8 @@
 - Public reference recovery from slot metadata succeeded without a certificate.
 - PIN policy `always`, touch policy `always`, origin `generated` were verified.
 - PIN retry count remained 3/3 after the first signing request.
-- Physical-touch signature: pending user presence at the device.
+- Physical-touch transaction signature succeeded through the compiled CLI and
+  passed independent P-256 and Sui SDK verification.
 
 ## Testnet demo
 
@@ -29,7 +30,18 @@
 - Simulation succeeded with `gasPaymentMocked: false`.
 - One software signature was accepted; aggregation correctly failed at weight 1/2.
 - Transaction digest: `BzVL89orchDdSVtgiFAeAPpHxLPxP1YnenGuNW5RT7YJ`.
-- Hardware signature and on-chain submission: pending physical touch.
+- The YubiKey signature plus one temporary Ed25519 signature reached weight 2/2.
+- The combined native multisig signature was accepted and executed successfully.
+- Independent digest lookup on the pinned testnet chain confirmed success.
+- The recipient's final balance was 1 MIST.
+- Gas spent: 1,988,000 MIST (0.001988 SUI).
+- Remaining multisig balance: 998,011,999 MIST (0.998011999 SUI).
+
+The public key reference, composition, exact proposal bytes, two signature
+artifacts, combined signature, execution result, and independent confirmation are
+stored locally under `~/.local/share/multisig/testnet-demo-20261028/`.
+Temporary software private keys are retained there in a mode-0600 file so the
+remaining testnet funds stay recoverable; they were not printed or committed.
 
 No mainnet transaction was submitted. Hosted Sagat API behavior is source/mocked
 contract tested; live authenticated hosted coordination remains unverified.
