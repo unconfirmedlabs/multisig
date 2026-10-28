@@ -48,8 +48,28 @@ stored locally under `~/.local/share/multisig/testnet-demo-20261028/`.
 Temporary software private keys are retained there in a mode-0600 file so the
 remaining testnet funds stay recoverable; they were not printed or committed.
 
-No mainnet transaction was submitted. Hosted Sagat API behavior is source/mocked
-contract tested; live authenticated hosted coordination remains unverified.
 Address-alias state lookup was checked against testnet. Provisioning a second
 device and live alias enable/add/backup-signing remain pending; automated tests
 do not establish that a physical backup has been configured.
+
+## Mainnet public-key discovery
+
+- After the user funded the individual YubiKey address, the compiled CLI built
+  and simulated a 1-MIST self-transfer on mainnet.
+- The original YubiKey signed after a physical touch; the sender was its
+  individual address, not the demo multisig.
+- Transaction digest: `3EszFJKHVJgKR1SPcWBjUNuPYB55Zpmc9cV5i5E5zqvJ`.
+- Independent mainnet gRPC lookup confirmed successful execution.
+- Gas spent: 1,088,000 MIST (0.001088 SUI).
+- Remaining address balance: 998,912,000 MIST (0.998912 SUI).
+- Sagat's exact GraphQL sender/signature query recovered the expected flagged
+  Secp256r1 public key from this transaction. Server registration was unnecessary
+  for this discovery path.
+- Mainnet alias-state lookup confirmed aliases remain disabled; this transfer
+  did not authorize another key or modify any alias configuration.
+
+Preparation, simulation, execution, independent confirmation, and Sagat lookup
+artifacts are stored locally in
+`~/.local/share/multisig/mainnet-public-key-reveal/`. Hosted Sagat API behavior is
+source/mocked contract tested; live authenticated hosted coordination remains
+unverified.
