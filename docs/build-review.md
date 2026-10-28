@@ -1,9 +1,9 @@
 # Build and adversarial review
 
-The requested workflow used an Astra medium planning agent followed by a fresh
-Astra medium adversarial reviewer. Implementation remained with the primary
-agent. The user subsequently selected Bun FFI and one executable, so the native
-boundary uses an internal invocation of the compiled CLI rather than Rust.
+The CLI uses Effect services and Bun FFI. Native PIV calls run in an isolated
+internal invocation of the same compiled executable, keeping crashes and
+timeouts separate from the process that records operation outcomes. Yubico's
+`libykpiv` is loaded dynamically; no separate helper runtime is required.
 
 The review's concrete corrections are implemented:
 

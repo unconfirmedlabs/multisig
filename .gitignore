@@ -3,4 +3,7 @@ dist/
 .DS_Store
 *.local.json
 .env
+.env.*
+!.env.example
+temporary-keys.json
 coverage/

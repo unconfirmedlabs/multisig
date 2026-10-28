@@ -1,4 +1,4 @@
-import { mkdir, symlink } from 'node:fs/promises';
+import { mkdir, readlink, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -11,6 +11,8 @@ try {
   await symlink(source, destination);
 } catch (e: any) {
   if (e.code !== 'EEXIST') throw e;
-  throw new Error(`${destination} exists; inspect it before replacing it.`);
+  const existing = await readlink(destination).catch(() => undefined);
+  if (!existing || resolve(directory, existing) !== source)
+    throw new Error(`${destination} exists; inspect it before replacing it.`);
 }
 console.log(destination);

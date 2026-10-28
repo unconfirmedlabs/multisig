@@ -36,17 +36,19 @@ export async function writeNew(path: string, data: unknown) {
   const temp = `${resolve(path)}.${randomUUID()}.tmp`;
   const h = await open(temp, 'wx', 0o600);
   try {
-    await h.writeFile(bytes);
-    await h.sync();
-  } finally {
-    await h.close();
-  }
-  try {
-    await link(temp, resolve(path));
-  } catch (e: any) {
-    if (e.code === 'EEXIST')
-      throw new CliError({ code: 'FILE_EXISTS', message: `Refusing to overwrite ${path}.` });
-    throw e;
+    try {
+      await h.writeFile(bytes);
+      await h.sync();
+    } finally {
+      await h.close();
+    }
+    try {
+      await link(temp, resolve(path));
+    } catch (e: any) {
+      if (e.code === 'EEXIST')
+        throw new CliError({ code: 'FILE_EXISTS', message: `Refusing to overwrite ${path}.` });
+      throw e;
+    }
   } finally {
     await unlink(temp);
   }
@@ -115,7 +117,8 @@ export async function withDeviceLock<A>(root: string, serial: number, f: () => P
   let h;
   try {
     h = await open(path, 'wx', 0o600);
-  } catch {
+  } catch (e: any) {
+    if (e.code !== 'EEXIST') throw e;
     throw new CliError({
       code: 'DEVICE_BUSY',
       message: `Device lock exists at ${path}. Check that no operation is running before removing a stale lock.`,

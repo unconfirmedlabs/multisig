@@ -16,12 +16,19 @@ Linux arm64/x64 library paths are provided; Linux hardware behavior is unverifie
 
 ```sh
 brew install oven-sh/bun/bun yubico-piv-tool
+git clone https://github.com/unconfirmedlabs/multisig.git
+cd multisig
 bun install --frozen-lockfile
 bun run check
 bun run build
 bun run install:local
 multisig --help
 ```
+
+Add `~/.local/bin` to your `PATH` if needed. Local installation creates a
+symlink into this checkout; keep the checkout in place and rebuild it to update
+the installed command. Re-running installation accepts the same symlink and
+refuses to replace an unrelated file. Builds target the current OS and CPU.
 
 The result is one `dist/multisig` executable, including its internal PIV worker.
 It dynamically loads Yubico's official `libykpiv`; no Rust or Python runtime is
@@ -49,7 +56,7 @@ multisig device slots --device SERIAL --json --non-interactive
 multisig key address --device SERIAL --slot 9c --json --non-interactive
 ```
 
-The saved key ID is `SERIAL_SLOT`, for example `38539015_9c`. Read it again
+The saved key ID is `SERIAL_SLOT`, for example `12345678_9c`. Read it again
 without accessing hardware using `multisig key address --key SERIAL_SLOT`.
 To create a new key, inspect an empty slot and explicitly request generation:
 
@@ -272,3 +279,10 @@ multisig proposal execute --proposal /tmp/multisig-demo/proposal.json
 If the faucet is unavailable, fund the displayed multisig address with testnet
 SUI. Temporary private keys stay in the demo directory so any leftover testnet
 funds remain recoverable. They are never printed or committed.
+
+## Development and support
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local checks and architecture,
+[SECURITY.md](SECURITY.md) for private vulnerability reports, and
+[verification.md](docs/verification.md) for the scope of hardware validation.
+This project is licensed under [Apache-2.0](LICENSE).

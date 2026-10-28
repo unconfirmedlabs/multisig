@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { Effect, Layer } from 'effect';
+import { version } from '../package.json';
 import { verifyPersonalMessageSignature } from '@mysten/sui/verify';
 import { Transaction } from '@mysten/sui/transactions';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -211,7 +212,7 @@ export function parse(argv: string[]): Parsed {
 }
 export function help(command = '') {
   const list = command in commandFlags ? { [command]: commandFlags[command] } : commandFlags;
-  return `multisig 0.1.0 — native Sui multisigs with YubiKey PIV\n\nUsage: multisig <command> [options]\n\n${Object.entries(
+  return `multisig ${version} — native Sui multisigs with YubiKey PIV\n\nUsage: multisig <command> [options]\n\n${Object.entries(
     list,
   )
     .map(
@@ -425,7 +426,7 @@ export function runCommand(p: Parsed) {
             e instanceof CliError ? { code: e.code, message: e.message } : { available: false };
         }
         return {
-          version: '0.1.0',
+          version,
           runtime: `Bun ${Bun.version}`,
           platform: process.platform,
           arch: process.arch,

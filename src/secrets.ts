@@ -22,6 +22,7 @@ export function secret(
       tty = new ReadStream(input);
       tty.setRawMode(true);
     } catch {
+      if (input !== undefined) closeSync(input);
       assert(
         false,
         'CREDENTIAL_REQUIRED',
@@ -50,9 +51,12 @@ export function secret(
     out.fill(0);
     byte.fill(0);
     if (tty) {
-      tty.setRawMode(false);
-      process.stderr.write('\n');
-      closeSync(input!);
+      try {
+        tty.setRawMode(false);
+        process.stderr.write('\n');
+      } finally {
+        closeSync(input!);
+      }
     }
   }
 }

@@ -2,6 +2,7 @@
 import { Effect } from 'effect';
 import { parse, help, program, render } from './cli.ts';
 import { errorOf } from './errors.ts';
+import { version } from '../package.json';
 
 if (process.argv[2] === '--internal-piv') {
   try {
@@ -33,7 +34,7 @@ if (process.argv[2] === '--internal-piv') {
 } else {
   try {
     const p = parse(process.argv.slice(2));
-    if (p.flags.version) process.stdout.write('0.1.0\n');
+    if (p.flags.version) process.stdout.write(`${version}\n`);
     else if (p.flags.help) process.stdout.write(help(p.command));
     else {
       const exit = await Effect.runPromiseExit(program(p));
