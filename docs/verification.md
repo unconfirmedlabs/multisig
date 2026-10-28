@@ -3,11 +3,13 @@
 ## Automated
 
 - TypeScript strict typecheck passed.
-- 17 tests passed: mixed-scheme 2-of-3, transaction and personal-message PIV
+- 23 tests passed: mixed-scheme 2-of-3, transaction and personal-message PIV
   hashing, high-S normalization, malformed DER/TLV, firmware 5.8 metadata,
   composition/transaction tampering, concurrent signature imports, CLI pipes,
   chain-pin preservation, byte-for-byte submission, post-generation persistence
-  recovery, and Sagat HTTP contracts/uncertain responses.
+  recovery, Sagat HTTP contracts/uncertain responses, slot status and machine
+  mode behavior, alias BCS validation, distinct alias signing, saved-signature
+  reuse, chain checks, and confirmed on-chain failure journaling.
 - Frozen dependency install, compiled executable, and local installation passed.
 - The compiled executable dispatched its internal Bun FFI worker successfully.
 
@@ -20,6 +22,9 @@
 - PIN retry count remained 3/3 after the first signing request.
 - Physical-touch transaction signature succeeded through the compiled CLI and
   passed independent P-256 and Sui SDK verification.
+- Read-only compiled interactive picker scanned all 24 usable slots, showed
+  `9c` occupied and the other 23 empty, selected the existing key, and exited
+  with its full public reference. No PIN or touch was required.
 
 ## Testnet demo
 
@@ -45,3 +50,6 @@ remaining testnet funds stay recoverable; they were not printed or committed.
 
 No mainnet transaction was submitted. Hosted Sagat API behavior is source/mocked
 contract tested; live authenticated hosted coordination remains unverified.
+Address-alias state lookup was checked against testnet. Provisioning a second
+device and live alias enable/add/backup-signing remain pending; automated tests
+do not establish that a physical backup has been configured.

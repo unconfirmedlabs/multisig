@@ -41,6 +41,15 @@ import {
 } from './domain.ts';
 import { secret } from './secrets.ts';
 import { importProposal, exportProposal, exportWallet, SagatClient, messages } from './sagat.ts';
+import { Terminal } from './terminal.ts';
+import { getSlots, pickAddress, selectDevice, slotTable, type SlotOverview } from './device-ui.ts';
+import {
+  getAliases,
+  buildAliasTransaction,
+  signAliasTransaction,
+  executeAliasTransaction,
+  verifyAccountSignature,
+} from './aliases.ts';
 
 const globals = [
   'json',
@@ -98,15 +107,18 @@ const stringOptions = [
   'token-fd',
   'id',
   'proposer',
+  'alias',
   'status',
 ];
 const commandFlags: Record<string, string[]> = {
+  ui: [],
   doctor: [],
   'device list': [],
+  'device slots': ['device'],
   'device inspect': ['device', 'slot'],
   'key generate': ['device', 'slot', 'management-key-fd', 'factory-management-key'],
   'key export': ['device', 'slot'],
-  'key address': ['key'],
+  'key address': ['key', 'device', 'slot'],
   'wallet create': ['members', 'threshold', 'name'],
   'wallet import': ['input'],
   'wallet export': ['wallet', 'sagat'],
@@ -134,6 +146,11 @@ const commandFlags: Record<string, string[]> = {
   'proposal cancel': ['proposal'],
   'message sign': ['key', 'message', 'input', 'pin-fd'],
   'message verify': ['message', 'input', 'signature', 'public-key'],
+  'alias show': ['address'],
+  'alias enable': ['key', 'address', 'pin-fd'],
+  'alias add': ['key', 'address', 'alias', 'pin-fd'],
+  'alias remove': ['key', 'address', 'alias', 'pin-fd'],
+  'alias transfer-sui': ['key', 'address', 'recipient', 'amount', 'pin-fd'],
   'sagat login': ['key', 'pin-fd', 'api-url'],
   'sagat wallets': ['api-url', 'token-fd'],
   'sagat wallet-create': ['api-url', 'token-fd', 'wallet'],
@@ -169,7 +186,8 @@ export function parse(argv: string[]): Parsed {
       exit: 2,
     });
   }
-  const command = parsed.positionals.join(' ');
+  const command =
+    parsed.positionals.join(' ') || (parsed.values.help || parsed.values.version ? '' : 'ui');
   if (!parsed.values.help && !parsed.values.version) {
     assert(
       command in commandFlags,
@@ -416,6 +434,20 @@ export function runCommand(p: Parsed) {
         };
       }
       if (command === 'device list') return hardware.call({ op: 'devices' });
+      if (command === 'device slots') {
+        if (str(p, 'device')) return getSlots(hardware, number(p, 'device'));
+        assert(
+          interactive(p),
+          'DEVICE_REQUIRED',
+          'Provide --device SERIAL in non-interactive mode. Run device list --json to discover serials.',
+        );
+        const terminal = new Terminal();
+        try {
+          return getSlots(hardware, (await selectDevice(hardware, terminal)).serial);
+        } finally {
+          terminal.close();
+        }
+      }
       if (command === 'device inspect')
         return hardware.call({
           op: 'inspect',
@@ -501,9 +533,204 @@ export function runCommand(p: Parsed) {
         }
         return reference;
       }
-      if (command === 'key address') {
-        const k = await key(p, store);
-        return { address: k.address, publicKey: k.publicKey, serial: k.serial, slot: k.slot };
+      if (command === 'key address' || command === 'ui') {
+        if (str(p, 'key')) {
+          assert(
+            !str(p, 'device') && !str(p, 'slot'),
+            'USAGE',
+            'Choose --key, or select a device and slot.',
+          );
+          const k = await key(p, store);
+          return { address: k.address, publicKey: k.publicKey, serial: k.serial, slot: k.slot };
+        }
+        if (command === 'key address' && str(p, 'device') && str(p, 'slot')) {
+          const reference = keyReference(
+            await hardware.call({
+              op: 'inspect',
+              serial: number(p, 'device'),
+              slot: required(p, 'slot').toLowerCase(),
+            }),
+          );
+          const keyId = `${reference.serial}_${reference.slot}`;
+          await store.put('keys', keyId, reference);
+          return { keyId, ...reference };
+        }
+        assert(
+          interactive(p),
+          'INTERACTIVE_REQUIRED',
+          'Run multisig key address in a terminal, or provide --key REF / --device SERIAL --slot SLOT.',
+        );
+        const terminal = new Terminal();
+        try {
+          const result = await pickAddress(
+            hardware,
+            terminal,
+            str(p, 'device') ? number(p, 'device') : undefined,
+            str(p, 'slot'),
+          );
+          const { keyId, ...reference } = result;
+          await store.put('keys', keyId, reference);
+          terminal.write(
+            `\nSaved public reference: ${keyId}\nUse it again with: multisig key address --key ${keyId}\n`,
+          );
+          return result;
+        } finally {
+          terminal.close();
+        }
+      }
+      if (command.startsWith('alias ')) {
+        const operation = command.slice(6) as 'show' | 'enable' | 'add' | 'remove' | 'transfer-sui';
+        const n = network(p);
+        const endpoint = str(p, 'rpc-url') ?? endpoints[n];
+        const client = chain.client(n, str(p, 'rpc-url'));
+        if (operation === 'show')
+          return {
+            network: n,
+            endpoint,
+            ...(await getAliases(client, address(required(p, 'address')))),
+          };
+        const reference = await key(p, store);
+        const sender = address(str(p, 'address') ?? reference.address);
+        const tx = await buildAliasTransaction(client, {
+          network: n,
+          owner: sender,
+          signerAddress: reference.address,
+          operation,
+          alias:
+            operation === 'add' || operation === 'remove'
+              ? address(required(p, 'alias'))
+              : undefined,
+          recipient: operation === 'transfer-sui' ? address(required(p, 'recipient')) : undefined,
+          amount: operation === 'transfer-sui' ? required(p, 'amount') : undefined,
+        });
+        await store.put('account-transactions', tx.digest, tx);
+        const preview = await client.simulateTransaction({
+          transaction: base64(tx.transactionBytes),
+          doGasSelection: false,
+          checksEnabled: true,
+          include: { effects: true, balanceChanges: true },
+          signal: AbortSignal.timeout(30_000),
+        });
+        const previewTx = preview.Transaction ?? preview.FailedTransaction;
+        assert(
+          previewTx.status.success,
+          'SIMULATION_FAILED',
+          'Alias transaction simulation failed; no signature was requested.',
+        );
+        printReview({
+          operation: tx.operation,
+          network: n,
+          endpoint,
+          sender,
+          signerAddress: reference.address,
+          digest: tx.digest,
+          expectedAliases: tx.expectedAliases,
+          ...(operation === 'add'
+            ? {
+                authorization:
+                  'The added alias can independently control this address and modify its aliases.',
+              }
+            : {}),
+          transaction: Transaction.from(base64(tx.transactionBytes)).getData(),
+        });
+        await acknowledge(p, 'Sign and submit this account transaction?');
+        const savedSignature = async (): Promise<string | undefined> => {
+          let saved;
+          try {
+            saved = record(await store.get('account-signatures', tx.digest));
+          } catch (e: any) {
+            if (e.code === 'ENOENT') return undefined;
+            throw e;
+          }
+          assert(
+            saved.digest === tx.digest &&
+              saved.signerAddress === reference.address &&
+              typeof saved.signature === 'string',
+            'WRONG_SIGNER',
+            'Saved account signature metadata does not match this transaction.',
+          );
+          await verifyAccountSignature(tx, saved.signature);
+          return saved.signature;
+        };
+        let signature = await signAliasTransaction(
+          client,
+          tx,
+          makeSigner(p, reference, hardware),
+          await savedSignature(),
+        );
+        try {
+          await store.put('account-signatures', tx.digest, {
+            digest: tx.digest,
+            signerAddress: reference.address,
+            signature,
+          });
+        } catch (e) {
+          if (!(e instanceof CliError && e.code === 'STATE_CONFLICT')) throw e;
+          const firstSignature = await savedSignature();
+          assert(firstSignature, 'INVALID_SIGNATURE', 'Saved account signature is missing.');
+          signature = firstSignature;
+        }
+        const receipt = randomUUID();
+        await store.put('submissions', receipt, {
+          operation: tx.operation,
+          digest: tx.digest,
+          network: n,
+          endpoint,
+          startedAt: stamp(),
+          outcome: 'unknown',
+        });
+        const result = await executeAliasTransaction(client, tx, signature);
+        try {
+          await store.put('submission-results', receipt, {
+            digest: tx.digest,
+            outcome: 'applied',
+            result,
+          });
+        } catch {
+          throw new CliError({
+            code: 'EXECUTED_PERSISTENCE_FAILED',
+            message: 'The account transaction executed, but its receipt could not be saved.',
+            exit: 5,
+            details: { outcome: 'applied', digest: tx.digest, result },
+          });
+        }
+        if (result.$kind === 'FailedTransaction')
+          throw new CliError({
+            code: 'EXECUTION_FAILED',
+            message: 'The account transaction executed but failed on chain.',
+            exit: 4,
+            details: { digest: tx.digest, result },
+          });
+        let after: Awaited<ReturnType<typeof getAliases>>;
+        try {
+          await client.waitForTransaction({ result, timeout: 30_000 });
+          after = await getAliases(client, sender);
+          if (tx.expectedAliases)
+            assert(
+              tx.expectedAliases.length === after.aliases.length &&
+                tx.expectedAliases.every((a) => after.aliases.includes(a)),
+              'ALIAS_STATE_MISMATCH',
+              'Transaction executed, but the current alias set differs from the planned set.',
+            );
+        } catch {
+          throw new CliError({
+            code: 'EXECUTED_RECONCILIATION_PENDING',
+            message:
+              'The account transaction executed successfully; alias-state reconciliation is pending.',
+            exit: 5,
+            details: { outcome: 'applied', digest: tx.digest, sender },
+          });
+        }
+        return {
+          digest: tx.digest,
+          network: n,
+          outcome: 'applied',
+          sender,
+          signerAddress: reference.address,
+          aliases: after.aliases,
+          aliasesObjectId: after.objectId,
+          result,
+        };
       }
       if (command === 'wallet create') {
         const input = await readJson(required(p, 'members'));
@@ -994,7 +1221,9 @@ export async function render(value: unknown, p: Parsed) {
       });
     }
     process.stdout.write(JSON.stringify({ written: str(p, 'output') }) + '\n');
-  } else
+  } else if (p.command === 'device slots' && !p.flags.json)
+    process.stdout.write(slotTable(value as SlotOverview));
+  else
     process.stdout.write(
       JSON.stringify(
         value,

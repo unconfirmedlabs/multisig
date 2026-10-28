@@ -35,8 +35,25 @@ operations that Bun does not expose.
 
 ## Generate a YubiKey address
 
+Run `multisig` or `multisig key address` in a terminal to choose a connected
+YubiKey and see all 24 usable PIV slots. The table distinguishes occupied,
+empty, and unreadable slots, and shows addresses for readable P-256 keys.
+Choose an existing key to save its public reference and display its full Sui
+address and public key. Browsing slots requires no PIN or touch.
+
+For scripts, select the device and slot explicitly:
+
 ```sh
 multisig device list --json
+multisig device slots --device SERIAL --json --non-interactive
+multisig key address --device SERIAL --slot 9c --json --non-interactive
+```
+
+The saved key ID is `SERIAL_SLOT`, for example `38539015_9c`. Read it again
+without accessing hardware using `multisig key address --key SERIAL_SLOT`.
+To create a new key, inspect an empty slot and explicitly request generation:
+
+```sh
 multisig device inspect --device SERIAL --slot 9c --json
 multisig key generate --device SERIAL --slot 9c --output yubikey.json
 multisig key address --key yubikey.json
@@ -63,6 +80,38 @@ The exported file contains public information only. Modern slot metadata lets
 the CLI recover it without a certificate. On-device generation creates no seed
 phrase or private-key backup; choose the multisig composition so losing one
 device can be handled by the remaining members.
+
+## Authorize a second YubiKey with address aliases
+
+Generate a separate key on the second device, then enable aliases on the
+original individual address and add the second address. Each alias can
+independently act as the original address, including modifying its aliases.
+This is an on-chain authorization on the selected network, not a copy of the
+original private key. The original address needs SUI for gas.
+
+```sh
+multisig device slots --device BACKUP_SERIAL
+multisig key generate --device BACKUP_SERIAL --slot 9c --output backup.json
+multisig alias show --address ORIGINAL_ADDRESS --network testnet
+multisig alias enable --key ORIGINAL_SERIAL_9c --network testnet
+multisig alias add --key ORIGINAL_SERIAL_9c --alias BACKUP_ADDRESS --network testnet
+multisig alias transfer-sui --key backup.json --address ORIGINAL_ADDRESS --recipient ORIGINAL_ADDRESS --amount 1 --network testnet
+multisig alias show --address ORIGINAL_ADDRESS --network testnet
+```
+
+Enable and add are separate transactions and touches. Commands default to
+testnet; select `--network mainnet` explicitly for mainnet. The CLI retains the
+original address in the allowed set. Remove a backup with `alias remove --key
+ORIGINAL_SERIAL_9c --alias BACKUP_ADDRESS --network testnet`.
+
+Aliases authorize the transaction sender. An alias of an individual member does
+not substitute for that member's signature inside an existing native multisig.
+Granting a single backup key authority over the entire multisig address gives
+that key independent control of the multisig's assets.
+
+`alias transfer-sui` also works before aliases are enabled, using the original
+key. A small self-transfer signed by that key makes its public key discoverable
+from its transaction signature.
 
 ## Create a 2-of-3 wallet
 
@@ -179,6 +228,14 @@ are also available. `--help` lists their flags. API routes/authentication string
 are checked against Sagat source and tested with a mock; deployment differences
 can still require adapting the API client. The independent workflow never needs
 a Sagat login or backend.
+
+Sagat accepts flagged base64 public keys directly when composing a wallet. Its
+address lookup checks its registered-address table and outgoing transactions
+across mainnet, testnet, and devnet. A newly generated address may therefore be
+absent from address lookup until it is registered with Sagat or sends a direct
+transaction. A transaction sent by a multisig does not give the individual
+member address its own outgoing transaction. See Sagat's
+[lookup implementation](https://github.com/MystenLabs/sagat/blob/a4abb0aefc577dd28822afe98a3bd2a8211596fd/app/src/lib/onChainLookup.ts).
 
 ## Noninteractive use
 

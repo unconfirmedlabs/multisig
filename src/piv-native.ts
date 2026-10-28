@@ -1,6 +1,8 @@
 // Loaded only in an isolated invocation of the same CLI. No Rust/helper executable.
 import { dlopen, ptr, toArrayBuffer, type Pointer } from 'bun:ffi';
 import { assert, CliError } from './errors.ts';
+import { PIV_SLOTS } from './slots.ts';
+import type { ScannedSlot } from './slots.ts';
 
 const bindings = {
   ykpiv_init: { args: ['ptr', 'i32'], returns: 'i32' },
@@ -22,7 +24,7 @@ const bindings = {
 } as const;
 
 export interface NativeRequest {
-  op: 'devices' | 'inspect' | 'generate' | 'sign';
+  op: 'devices' | 'slots' | 'inspect' | 'generate' | 'sign';
   serial?: number;
   slot?: string;
   library?: string;
@@ -222,8 +224,6 @@ export async function nativeOperation(request: NativeRequest): Promise<unknown> 
       'DEVICE_NOT_FOUND',
       'The requested YubiKey serial is not connected or PIV is unavailable.',
     );
-    const slot = request.slot!;
-    const slotId = slotNumber(slot);
     function apdu(template: number[], input = Buffer.alloc(0)) {
       const command = Buffer.from(template);
       const output = Buffer.alloc(8192);
@@ -244,7 +244,8 @@ export async function nativeOperation(request: NativeRequest): Promise<unknown> 
       assert(length[0]! <= 8192n, 'PIV_ERROR', 'APDU response exceeded its buffer.');
       return { status: status[0]!, data: output.subarray(0, Number(length[0])) };
     }
-    function inspect(): SlotInfo {
+    function inspect(slot: string): SlotInfo {
+      const slotId = slotNumber(slot);
       const metadata = apdu([0, 0xf7, 0, slotId]);
       const cert = certTags[slot] ?? 0x0d + slotId - 0x82;
       const object = apdu([0, 0xcb, 0x3f, 0xff], Buffer.from([0x5c, 3, 0x5f, 0xc1, cert]));
@@ -268,7 +269,29 @@ export async function nativeOperation(request: NativeRequest): Promise<unknown> 
       );
       return decodeSlot(metadata.data, slot, object.status === 0x9000);
     }
-    const before = inspect();
+    if (request.op === 'slots') {
+      const slots: ScannedSlot[] = PIV_SLOTS.map((definition) => {
+        try {
+          const info = inspect(definition.slot);
+          return { ...definition, ...info, state: info.empty ? 'empty' : 'occupied' };
+        } catch (e) {
+          const error =
+            e instanceof CliError
+              ? { code: e.code, message: e.message }
+              : { code: 'SLOT_STATE_UNKNOWN', message: 'Slot metadata could not be read.' };
+          return {
+            ...definition,
+            state: error.code === 'SLOT_OCCUPIED' ? 'occupied' : 'unknown',
+            ...(error.code === 'SLOT_OCCUPIED' ? { certificatePresent: true } : {}),
+            error,
+          };
+        }
+      });
+      return { ...devices.at(-1), slots };
+    }
+    const slot = request.slot!;
+    const slotId = slotNumber(slot);
+    const before = inspect(slot);
     if (request.op === 'inspect') return { ...devices.at(-1), ...before };
     if (request.op === 'generate') {
       assert(
@@ -292,7 +315,7 @@ export async function nativeOperation(request: NativeRequest): Promise<unknown> 
         delete request.managementKey;
       }
       // Recheck immediately before mutation. Other PIV applications must remain closed.
-      assert(inspect().empty, 'SLOT_OCCUPIED', 'The selected PIV slot is no longer empty.');
+      assert(inspect(slot).empty, 'SLOT_OCCUPIED', 'The selected PIV slot is no longer empty.');
       const point = new BigUint64Array(1);
       const length = new BigUint64Array(1);
       let generatedHex: string | undefined;
@@ -333,7 +356,7 @@ export async function nativeOperation(request: NativeRequest): Promise<unknown> 
       }
       let after: SlotInfo;
       try {
-        after = inspect();
+        after = inspect(slot);
       } catch {
         throw new CliError({
           code: 'GENERATION_UNKNOWN',
